@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>カラーホイール パレット ジェネレーター</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-900 text-gray-100 min-h-screen flex flex-col items-center p-4">
+
+  <header class="text-center mb-6 mt-2">
+    <h1 class="text-2xl font-bold text-white">カラーホイール パレット ジェネレーター</h1>
+    <p class="text-gray-400 text-sm mt-1">Color Wheel Palette Generator</p>
+  </header>
+
+  <div class="w-full max-w-4xl flex flex-col gap-6">
+
+    <div class="flex flex-col md:flex-row gap-6 items-start justify-center">
+
+      <!-- Canvas -->
+      <div class="flex flex-col items-center gap-3">
+        <div class="relative">
+          <canvas id="wheelCanvas" width="400" height="400"
+            class="rounded-full cursor-crosshair"
+            role="img" aria-label="カラーホイール — クリックで色相を選択"></canvas>
+        </div>
+        <p class="text-gray-500 text-xs">クリックで色相を選択 / Click to select hue</p>
+      </div>
+
+      <!-- Controls + Swatches -->
+      <div class="flex flex-col gap-4 flex-1 min-w-0">
+
+        <!-- Harmony mode -->
+        <div class="bg-gray-800 rounded-xl p-4">
+          <h2 class="text-gray-300 text-sm font-semibold mb-3">配色モード Harmony Mode</h2>
+          <div class="flex flex-wrap gap-2" id="harmonyBtns">
+            <button data-mode="complementary"       class="harmony-btn px-3 py-1.5 rounded-lg text-xs font-medium bg-indigo-600 text-white transition-colors">補色</button>
+            <button data-mode="split-complementary" class="harmony-btn px-3 py-1.5 rounded-lg text-xs font-medium bg-gray-700 hover:bg-gray-600 text-gray-200 transition-colors">分裂補色</button>
+            <button data-mode="analogous"           class="harmony-btn px-3 py-1.5 rounded-lg text-xs font-medium bg-gray-700 hover:bg-gray-600 text-gray-200 transition-colors">類似色</button>
+            <button data-mode="triadic"             class="harmony-btn px-3 py-1.5 rounded-lg text-xs font-medium bg-gray-700 hover:bg-gray-600 text-gray-200 transition-colors">トライアド</button>
+            <button data-mode="tetradic"            class="harmony-btn px-3 py-1.5 rounded-lg text-xs font-medium bg-gray-700 hover:bg-gray-600 text-gray-200 transition-colors">テトラード</button>
+          </div>
+        </div>
+
+        <!-- Sat / Light sliders -->
+        <div class="bg-gray-800 rounded-xl p-4 flex flex-col gap-3">
+          <div class="flex items-center gap-3">
+            <label for="satSlider" class="text-gray-300 text-xs w-28 shrink-0">彩度 Saturation</label>
+            <input id="satSlider" type="range" min="10" max="100" value="80" class="flex-1 accent-indigo-500" aria-label="彩度">
+            <span id="satVal" class="text-indigo-400 font-mono text-xs w-10 text-right">80%</span>
+          </div>
+          <div class="flex items-center gap-3">
+            <label for="lightSlider" class="text-gray-300 text-xs w-28 shrink-0">明度 Lightness</label>
+            <input id="lightSlider" type="range" min="20" max="80" value="50" class="flex-1 accent-pink-500" aria-label="明度">
+            <span id="lightVal" class="text-pink-400 font-mono text-xs w-10 text-right">50%</span>
+          </div>
+        </div>
+
+        <!-- Swatches -->
+        <div class="bg-gray-800 rounded-xl p-4">
+          <h2 class="text-gray-300 text-sm font-semibold mb-3">パレット Palette</h2>
+          <div id="swatchContainer" class="flex flex-wrap gap-3"></div>
+          <p id="copyFeedback" class="text-green-400 text-xs mt-2 h-4"></p>
+        </div>
+
+        <!-- Selected hue display -->
+        <div class="bg-gray-800 rounded-xl p-4 flex items-center gap-3">
+          <span class="text-gray-400 text-xs">選択色相 Selected Hue:</span>
+          <span id="hueDisplay" class="text-white font-mono text-sm">0°</span>
+          <div id="huePreview" class="w-8 h-8 rounded-full border-2 border-gray-600" style="background:hsl(0,80%,50%)"></div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function escapeHtml(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+
+    const canvas = document.getElementById('wheelCanvas');
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height;
+    const CX = W/2, CY = H/2;
+    const R_OUTER = W/2 - 4;
+    const R_INNER = W/2 - 60;
+
+    let selectedHue = 0;
+    let harmonyMode = 'complementary';
+    let saturation = 80;
+    let lightness = 50;
+
+    // Draw wheel using putImageData
+    function drawWheel() {
+      const imageData = ctx.createImageData(W, H);
+      const data = imageData.data;
+
+      for (let y = 0; y < H; y++) {
+        for (let x = 0; x < W; x++) {
+          const dx = x - CX, dy = y - CY;
+          const dist = Math.sqrt(dx*dx + dy*dy);
+          if (dist < R_INNER || dist > R_OUTER) {
+            data[(y*W+x)*4+3] = 0; // transparent
+            continue;
+          }
+          const angle = Math.atan2(dy, dx) * 180 / Math.PI + 90;
+          const hue = ((angle % 360) + 360) % 360;
+          const [r,g,b] = hslToRgb(hue/360, saturation/100, lightness/100);
+          const idx = (y*W+x)*4;
+          data[idx]   = r;
+          data[idx+1] = g;
+          data[idx+2] = b;
+          data[idx+3] = 255;
+        }
+      }
+      ctx.putImageData(imageData, 0, 0);
+    }
+
+    function drawIndicators() {
+      const hues = getHarmonyHues(selectedHue, harmonyMode);
+      hues.forEach((h, i) => {
+        const angle = (h - 90) * Math.PI / 180;
+        const r = (R_OUTER + R_INNER) / 2;
+        const x = CX + r * Math.cos(angle);
+        const y = CY + r * Math.sin(angle);
+        ctx.beginPath();
+        ctx.arc(x, y, 10, 0, 2*Math.PI);
+        ctx.fillStyle = hslToHex(h, saturation, lightness);
+        ctx.fill();
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      });
+    }
+
+    function render() {
+      drawWheel();
+      drawIndicators();
+      updateSwatches();
+    }
+
+    // Harmony mode hue offsets
+    function getHarmonyHues(base, mode) {
+      const b = base;
+      if (mode === 'complementary')       return [b, (b+180)%360];
+      if (mode === 'split-complementary') return [b, (b+150)%360, (b+210)%360];
+      if (mode === 'analogous')           return [(b-30+360)%360, b, (b+30)%360];
+      if (mode === 'triadic')             return [b, (b+120)%360, (b+240)%360];
+      if (mode === 'tetradic')            return [b, (b+90)%360, (b+180)%360, (b+270)%360];
+      return [b];
+    }
+
+    function updateSwatches() {
+      const hues = getHarmonyHues(selectedHue, harmonyMode);
+      const container = document.getElementById('swatchContainer');
+      container.innerHTML = '';
+      hues.forEach(h => {
+        const hex = hslToHex(h, saturation, lightness);
+        const div = document.createElement('div');
+        div.className = 'flex flex-col items-center gap-1';
+
+        const swatch = document.createElement('div');
+        swatch.style.cssText = `width:64px;height:64px;border-radius:12px;background:${hex};border:2px solid #374151;cursor:pointer;`;
+        swatch.setAttribute('role','button');
+        swatch.setAttribute('aria-label', `色 ${hex} をコピー`);
+        swatch.title = `クリックでコピー: ${hex}`;
+
+        const label = document.createElement('div');
+        label.className = 'text-xs font-mono text-gray-300';
+        label.textContent = hex;
+
+        const copyBtn = document.createElement('button');
+        copyBtn.className = 'text-xs text-indigo-400 hover:text-indigo-300 transition-colors';
+        copyBtn.textContent = 'コピー';
+        copyBtn.setAttribute('aria-label', `${hex} をクリップボードにコピー`);
+        copyBtn.addEventListener('click', () => copyHex(hex));
+        swatch.addEventListener('click', () => copyHex(hex));
+
+        div.appendChild(swatch);
+        div.appendChild(label);
+        div.appendChild(copyBtn);
+        container.appendChild(div);
+      });
+
+      // Update hue display
+      document.getElementById('hueDisplay').textContent = Math.round(selectedHue) + '°';
+      document.getElementById('huePreview').style.background = `hsl(${selectedHue},${saturation}%,${lightness}%)`;
+    }
+
+    function copyHex(hex) {
+      navigator.clipboard.writeText(hex).then(() => {
+        const fb = document.getElementById('copyFeedback');
+        fb.textContent = `コピー完了: ${escapeHtml(hex)}`;
+        setTimeout(() => { fb.textContent = ''; }, 2000);
+      }).catch(() => {
+        const fb = document.getElementById('copyFeedback');
+        fb.textContent = `${escapeHtml(hex)}`;
+      });
+    }
+
+    // Color math
+    function hslToRgb(h, s, l) {
+      let r, g, b;
+      if (s === 0) { r = g = b = l; }
+      else {
+        const hue2rgb = (p, q, t) => {
+          if (t < 0) t += 1; if (t > 1) t -= 1;
+          if (t < 1/6) return p + (q-p)*6*t;
+          if (t < 1/2) return q;
+          if (t < 2/3) return p + (q-p)*(2/3-t)*6;
+          return p;
+        };
+        const q = l < 0.5 ? l*(1+s) : l+s-l*s;
+        const p = 2*l - q;
+        r = hue2rgb(p, q, h+1/3);
+        g = hue2rgb(p, q, h);
+        b = hue2rgb(p, q, h-1/3);
+      }
+      return [Math.round(r*255), Math.round(g*255), Math.round(b*255)];
+    }
+
+    function hslToHex(h, s, l) {
+      const [r,g,b] = hslToRgb(h/360, s/100, l/100);
+      return '#' + [r,g,b].map(v => v.toString(16).padStart(2,'0')).join('');
+    }
+
+    // Canvas click
+    canvas.addEventListener('click', e => {
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = W / rect.width;
+      const scaleY = H / rect.height;
+      const x = (e.clientX - rect.left) * scaleX;
+      const y = (e.clientY - rect.top) * scaleY;
+      const dx = x - CX, dy = y - CY;
+      const dist = Math.sqrt(dx*dx + dy*dy);
+      if (dist < R_INNER || dist > R_OUTER) return;
+      const angle = Math.atan2(dy, dx) * 180 / Math.PI + 90;
+      selectedHue = ((angle % 360) + 360) % 360;
+      render();
+      saveState();
+    });
+
+    // Harmony buttons
+    document.getElementById('harmonyBtns').addEventListener('click', e => {
+      const btn = e.target.closest('.harmony-btn');
+      if (!btn) return;
+      harmonyMode = btn.dataset.mode;
+      document.querySelectorAll('.harmony-btn').forEach(b => {
+        b.className = 'harmony-btn px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ' +
+          (b === btn ? 'bg-indigo-600 text-white' : 'bg-gray-700 hover:bg-gray-600 text-gray-200');
+      });
+      render();
+      saveState();
+    });
+
+    // Sliders
+    const satSlider = document.getElementById('satSlider');
+    const lightSlider = document.getElementById('lightSlider');
+    satSlider.addEventListener('input', () => {
+      saturation = parseInt(satSlider.value);
+      document.getElementById('satVal').textContent = saturation + '%';
+      render();
+      saveState();
+    });
+    lightSlider.addEventListener('input', () => {
+      lightness = parseInt(lightSlider.value);
+      document.getElementById('lightVal').textContent = lightness + '%';
+      render();
+      saveState();
+    });
+
+    // Persistence
+    function saveState() {
+      localStorage.setItem('colorWheelPalette', JSON.stringify({ selectedHue, harmonyMode, saturation, lightness }));
+    }
+    function loadState() {
+      try {
+        const s = JSON.parse(localStorage.getItem('colorWheelPalette'));
+        if (s) {
+          if (s.selectedHue != null) selectedHue = s.selectedHue;
+          if (s.harmonyMode) harmonyMode = s.harmonyMode;
+          if (s.saturation) saturation = s.saturation;
+          if (s.lightness)  lightness  = s.lightness;
+          satSlider.value = saturation;
+          lightSlider.value = lightness;
+          document.getElementById('satVal').textContent = saturation + '%';
+          document.getElementById('lightVal').textContent = lightness + '%';
+          document.querySelectorAll('.harmony-btn').forEach(b => {
+            const active = b.dataset.mode === harmonyMode;
+            b.className = 'harmony-btn px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ' +
+              (active ? 'bg-indigo-600 text-white' : 'bg-gray-700 hover:bg-gray-600 text-gray-200');
+          });
+        }
+      } catch(e) {}
+    }
+
+    loadState();
+    render();
+  </script>
+</body>
+</html>
